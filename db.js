@@ -57,7 +57,6 @@ export const q = {
   top25: db.prepare(`SELECT name, money, user_id, slot FROM characters ORDER BY money DESC, id ASC LIMIT 25`),
 };
 
-/* convenience wrappers … (unchanged) */
 export const getCharsByUser = (uid) => q.getCharsByUser.all(uid);
 export const getCharByUserSlot = (uid, slot) => q.getCharByUserSlot.get(uid, slot);
 export const createChar = (uid, slot, name) => { q.insertChar.run(uid, slot, name); return getCharByUserSlot(uid, slot); };
