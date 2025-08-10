@@ -10,20 +10,20 @@ export default {
     .setDescription("Add credits to a user's character slot")
     .addUserOption(o => o.setName("user").setDescription("Target user").setRequired(true))
     .addIntegerOption(o =>
-      o.setName("slot").setDescription("Slot 1–3").setRequired(true)
+      o.setName("slot").setDescription("Slot 1-3").setRequired(true)
         .addChoices({ name: "Slot 1", value: 1 }, { name: "Slot 2", value: 2 }, { name: "Slot 3", value: 3 })
     )
     .addIntegerOption(o => o.setName("amount").setDescription("Amount to add (>=1)").setRequired(true)),
 
   async execute(interaction) {
-    if (!hasModPerms(interaction)) return interaction.reply({ content: "❌ You don’t have permission to use this." });
+    if (!hasModPerms(interaction)) return interaction.reply({ content: "❌ You don't have permission to use this." });
 
     const target = interaction.options.getUser("user", true) ?? interaction.user;
     const slot = interaction.options.getInteger("slot", true);
     const amount = interaction.options.getInteger("amount", true);
 
     if (![1, 2, 3].includes(slot) || amount <= 0) {
-      return interaction.reply({ content: "❌ Slot must be 1–3 and amount must be ≥ 1." });
+      return interaction.reply({ content: "❌ Slot must be 1-3 and amount must be ≥ 1." });
     }
 
     const char = getCharByUserSlot(target.id, slot);

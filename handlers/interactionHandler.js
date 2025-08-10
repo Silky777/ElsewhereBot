@@ -1,27 +1,10 @@
 import { EmbedBuilder, Events } from "discord.js";
-import { db, getCharByUserSlot, listInventory, getPending, clearPending, createChar, listShopItems } from "../db.js";
+import { db, getCharByUserSlot, listInventory, getPending, clearPending, createChar } from "../db.js";
 import { credits } from "../utils/format.js";
-import { fuzzySuggest } from "../utils/fuzzy.js";
 
 export default function interactionCreateEvent(client) {
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
-      // Autocomplete for /shop buy item
-      if (interaction.isAutocomplete()) {
-        if (interaction.commandName === "shop") {
-          const sub = interaction.options.getSubcommand(false);
-          const focused = interaction.options.getFocused(true);
-          if (sub === "buy" && focused?.name === "item") {
-            const items = listShopItems();
-            const picks = fuzzySuggest(focused.value ?? "", items, i => i.name, 25);
-            return interaction.respond(
-              picks.slice(0, 25).map(i => ({ name: `${i.name} — ${i.price}`, value: i.name }))
-            );
-          }
-        }
-        return;
-      }
-
       // Slash commands -> dispatch to per-file commands
       if (interaction.isChatInputCommand()) {
         const cmd = client.commands?.get(interaction.commandName);
@@ -30,7 +13,7 @@ export default function interactionCreateEvent(client) {
         return;
       }
 
-      // Create-slot buttons
+      // Buttons: char_create_<slot>
       if (interaction.isButton() && interaction.customId.startsWith("char_create_")) {
         const pending = getPending(interaction.message.id);
         if (!pending || pending.user_id !== interaction.user.id) {
@@ -73,7 +56,7 @@ export default function interactionCreateEvent(client) {
           if (!row) return interaction.update({ content: "❌ Character not found.", embeds: [], components: [] });
 
           return interaction.update({
-            embeds: [new EmbedBuilder().setTitle(`${row.name} — Balance`).setDescription("## " + credits(row.money))],
+            embeds: [new EmbedBuilder().setTitle(`${row.name} — Balance`).setDescription(credits(row.money))],
             components: [],
           });
         }
@@ -88,22 +71,13 @@ export default function interactionCreateEvent(client) {
       }
     } catch (err) {
       console.error(err);
-      const msg = "Something went wrong. (Check bot logs)";
-      try {
-        if (interaction.deferred || interaction.replied) {
-          await interaction.followUp({ content: msg, ephemeral: true });
-        } else {
-          await interaction.reply({ content: msg, ephemeral: true });
-        }
-      } catch {}
-
-      // Also notify in channel
-      try {
-        await interaction.channel?.send({
-          content: "<@225466897301241856> Fix your bot you idiot.",
-          allowedMentions: { users: ["225466897301241856"] },
-        });
-      } catch {}
+      if (interaction.isRepliable()) {
+        try {
+          const msg = "Something went wrong. (Check bot logs)";
+          if (interaction.deferred || interaction.replied) await interaction.followUp({ content: msg, ephemeral: true });
+          else await interaction.reply({ content: msg, ephemeral: true });
+        } catch {}
+      }
     }
   });
 }
