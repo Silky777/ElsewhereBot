@@ -17,7 +17,7 @@ export default {
     .addBooleanOption(o => o.setName("one_time").setDescription("Mark as one-time (no quantity)").setRequired(false)),
 
   async execute(interaction) {
-    if (!hasModPerms(interaction)) return interaction.reply({ content: "❌ You don’t have permission to use this." });
+    if (!hasModPerms(interaction)) return interaction.reply({ content: "❌ You don't have permission to use this." });
 
     const target = interaction.options.getUser("user", true);
     const slot = interaction.options.getInteger("slot", true);
@@ -26,7 +26,7 @@ export default {
     const qty = oneTime ? 1 : (interaction.options.getInteger("qty") ?? 1);
 
     if (![1, 2, 3].includes(slot) || qty <= 0) {
-      return interaction.reply({ content: "❌ Slot must be 1–3 and qty must be ≥ 1." });
+      return interaction.reply({ content: "❌ Slot must be 1-3 and qty must be ≥ 1." });
     }
 
     const char = getCharByUserSlot(target.id, slot);
@@ -35,8 +35,8 @@ export default {
     const res = giveItem(char.id, item, qty, oneTime);
     const actual = res.item ?? item;
 
-    const itemLabel = res.one_time ? `**${actual}**` : `**${fmt(qty)}× ${actual}**`;
-    const nowHas = res.one_time ? `**${actual}**` : `**${fmt(res.qty)}× ${actual}**`;
+    const itemLabel = res.one_time ? `**${actual}**` : `**${fmt(qty)}x ${actual}**`;
+    const nowHas = res.one_time ? `**${actual}**` : `**${fmt(res.qty)}x ${actual}**`;
 
     return interaction.reply(
       `✅ Added ${itemLabel} to **${displayNameOf(interaction, target)}** (${char.name}). Now has: ${nowHas}`
