@@ -30,7 +30,7 @@ export default {
       const c = chars[0];
       const items = listInventory(Number(c.id));
       const lines = items.length
-        ? items.map((i) => `- ${i.qty}x ${i.item}`).join("\n")
+        ? items.map(i => (i.one_time ? `**• ${i.item}**` : `• ${i.item}x ${i.qty}`)).join("\n")
         : "*Empty*";
       return interaction.reply({
         embeds: [

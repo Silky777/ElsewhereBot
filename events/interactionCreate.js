@@ -80,8 +80,13 @@ export default function interactionCreateEvent(client) {
 
         if (/Inventory/i.test(title)) {
           const items = listInventory(Number(value));
-          const lines = items.length ? items.map((i) => `• ${i.item} × ${i.qty}`).join("\n") : "*Empty*";
-          return interaction.update({ embeds: [new EmbedBuilder().setTitle("Inventory").setDescription(lines)], components: [] });
+          const lines = items.length
+            ? items.map(i => (i.one_time ? `**• ${i.item}**` : `**• ${i.item}x ${i.qty}**`)).join("\n")
+            : "*Empty*";
+          return interaction.update({
+            embeds: [new EmbedBuilder().setTitle("Inventory").setDescription(lines)],
+            components: [],
+          });
         }
 
         return interaction.update({ content: "❌ Unknown picker context.", components: [] });

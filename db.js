@@ -25,6 +25,7 @@ export function init() {
       character_id INTEGER NOT NULL,
       item   TEXT NOT NULL,
       qty    INTEGER NOT NULL CHECK (qty >= 0),
+      one_time INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (character_id, item),
       FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
     );
@@ -45,6 +46,8 @@ export function init() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_inventories_char_item
       ON inventories(character_id, item);
   `);
+  // Migrate older DBs missing inventories.one_time
+  try { db.exec(`ALTER TABLE inventories ADD COLUMN one_time INTEGER NOT NULL DEFAULT 0`); } catch {}
 }
 
 init();
@@ -57,30 +60,22 @@ export const q = {
   deleteInvByChar: db.prepare(`DELETE FROM inventories WHERE character_id=?`),
   deleteCharById: db.prepare(`DELETE FROM characters WHERE id=?`),
   renameCharBySlot: db.prepare(`UPDATE characters SET name=? WHERE user_id=? AND slot=?`),
-  listInv: db.prepare(`SELECT item, qty FROM inventories WHERE character_id=? ORDER BY item`),
-  upsertPending: db.prepare(`
-    INSERT INTO pending (message_id,user_id,name) VALUES (?,?,?)
-    ON CONFLICT(message_id) DO UPDATE SET user_id=excluded.user_id, name=excluded.name
-  `),
-  getPending: db.prepare(`SELECT user_id, name FROM pending WHERE message_id=?`),
-  delPending: db.prepare(`DELETE FROM pending WHERE message_id=?`),
-  top25: db.prepare(`SELECT name, money, user_id, slot FROM characters ORDER BY money DESC, id ASC LIMIT 25`),
-  listShop: db.prepare(`SELECT name, price, COALESCE(description,'') AS description, COALESCE(one_time,0) AS one_time FROM shop_items ORDER BY name`),
-  getShopItemByName: db.prepare(`SELECT id, name, price, COALESCE(description,'') AS description, COALESCE(one_time,0) AS one_time FROM shop_items WHERE name = ? COLLATE NOCASE`),
-
+  listInv: db.prepare(`SELECT item, qty, one_time FROM inventories WHERE character_id=? ORDER BY item`),
   upsertInventory: db.prepare(`
-    INSERT INTO inventories (character_id, item, qty) VALUES (?,?,?)
-    ON CONFLICT(character_id,item) DO UPDATE SET qty = inventories.qty + excluded.qty
+    INSERT INTO inventories (character_id, item, qty, one_time) VALUES (?,?,?,0)
+    ON CONFLICT(character_id,item) DO UPDATE SET
+      qty = CASE WHEN inventories.one_time = 1 THEN inventories.qty ELSE inventories.qty + excluded.qty END,
+      one_time = inventories.one_time
   `),
   setInventoryToOne: db.prepare(`
-    INSERT INTO inventories (character_id, item, qty) VALUES (?,?,1)
-    ON CONFLICT(character_id,item) DO UPDATE SET qty = 1
+    INSERT INTO inventories (character_id, item, qty, one_time) VALUES (?,?,1,1)
+    ON CONFLICT(character_id,item) DO UPDATE SET qty = 1, one_time = 1
   `),
-  checkOwned: db.prepare(`SELECT 1 FROM inventories WHERE character_id=? AND item=? LIMIT 1`),
-  trySpend: db.prepare(`UPDATE characters SET money = money - ? WHERE id = ? AND money >= ?`),
   getInvQty: db.prepare(`SELECT qty FROM inventories WHERE character_id=? AND item=?`),
   decInventory: db.prepare(`UPDATE inventories SET qty = qty - ? WHERE character_id=? AND item=?`),
   delInventoryRow: db.prepare(`DELETE FROM inventories WHERE character_id=? AND item=?`),
+  findInvNameNoCase: db.prepare(`SELECT item FROM inventories WHERE character_id=? AND item = ? COLLATE NOCASE LIMIT 1`),
+  getInvRowNoCase: db.prepare(`SELECT item, qty, one_time FROM inventories WHERE character_id=? AND item = ? COLLATE NOCASE LIMIT 1`),
 };
 
 // Atomic purchase: deduct if enough, then add inventory
@@ -98,25 +93,36 @@ const purchaseTx = db.transaction((charId, itemName, qty, totalCost, oneTime) =>
   return { ok: true };
 });
 
-// Add/Remove inventory transactions
-const addItemTx = db.transaction((charId, item, qty) => {
-  q.upsertInventory.run(charId, item, qty);
-  const row = q.getInvQty.get(charId, item);
-  return { ok: true, qty: row?.qty ?? 0 };
+// Replace add/remove item transactions with case-insensitive resolution
+const addItemTx = db.transaction((charId, rawItem, qty, oneTime) => {
+  const item = (rawItem ?? "").trim();
+  const existing = q.findInvNameNoCase.get(charId, item);
+  const actual = existing?.item ?? item;
+  if (oneTime) q.setInventoryToOne.run(charId, actual);
+  else q.upsertInventory.run(charId, actual, qty);
+  const row = q.getInvRowNoCase.get(charId, actual);
+  return { ok: true, qty: row?.qty ?? 0, item: actual, one_time: !!row?.one_time };
 });
 
-const removeItemTx = db.transaction((charId, item, qty) => {
-  const row = q.getInvQty.get(charId, item);
-  const current = row?.qty ?? 0;
+const removeItemTx = db.transaction((charId, rawItem, qty) => {
+  const item = (rawItem ?? "").trim();
+  const row = q.getInvRowNoCase.get(charId, item);
   if (!row) return { ok: false, reason: "not_owned", qty: 0 };
-  if (current < qty) return { ok: false, reason: "not_enough", qty: current };
+  const actual = row.item;
 
-  if (current === qty) {
-    q.delInventoryRow.run(charId, item);
-    return { ok: true, qty: 0, removedAll: true };
+  if (row.one_time) {
+    q.delInventoryRow.run(charId, actual);
+    return { ok: true, qty: 0, removedAll: true, one_time: true, item: actual };
+  }
+
+  if (row.qty < qty) return { ok: false, reason: "not_enough", qty: row.qty };
+
+  if (row.qty === qty) {
+    q.delInventoryRow.run(charId, actual);
+    return { ok: true, qty: 0, removedAll: true, item: actual };
   } else {
-    q.decInventory.run(qty, charId, item);
-    return { ok: true, qty: current - qty, removedAll: false };
+    q.decInventory.run(qty, charId, actual);
+    return { ok: true, qty: row.qty - qty, removedAll: false, item: actual };
   }
 });
 
@@ -141,8 +147,8 @@ export function top25Characters() {
 export const listShopItems = () => q.listShop.all();
 export const getShopItemByName = (name) => q.getShopItemByName.get(name);
 export function purchaseItem(charId, itemName, qty, totalCost, oneTime = false) { return purchaseTx(charId, itemName, qty, totalCost, !!oneTime); }
-export function giveItem(charId, item, qty) {
-  return addItemTx(charId, item, qty);
+export function giveItem(charId, item, qty, oneTime = false) {
+  return addItemTx(charId, item, qty, !!oneTime);
 }
 
 export function removeItem(charId, item, qty) {

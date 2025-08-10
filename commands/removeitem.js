@@ -20,7 +20,7 @@ export default {
 
     const target = interaction.options.getUser("user", true);
     const slot = interaction.options.getInteger("slot", true);
-    const item = interaction.options.getString("item", true);
+    const itemInput = interaction.options.getString("item", true).trim();
     const qty = interaction.options.getInteger("qty", true);
 
     if (![1, 2, 3].includes(slot) || qty <= 0) {
@@ -30,20 +30,23 @@ export default {
     const char = getCharByUserSlot(target.id, slot);
     if (!char) return interaction.reply({ content: `❌ No character for **${displayNameOf(target)}** in slot **${slot}**.` });
 
-    const res = removeItem(char.id, item, qty);
+    const res = removeItem(char.id, itemInput, qty);
     if (!res.ok) {
       if (res.reason === "not_owned") {
-        return interaction.reply({ content: `❌ ${char.name} doesn’t have any **${item}**.` });
+        return interaction.reply({ content: `❌ ${char.name} doesn't have any **${itemInput}**.` });
       }
       if (res.reason === "not_enough") {
-        return interaction.reply({ content: `❌ Not enough **${item}**. Current: ${fmt(res.qty)}.` });
+        return interaction.reply({ content: `❌ Not enough **${itemInput}**. Current: ${fmt(res.qty)}.` });
       }
       return interaction.reply({ content: "❌ Failed to remove item." });
     }
 
-    const note = res.qty === 0 ? "Removed completely." : `Now has: **${fmt(res.qty)}× ${item}**`;
+    const actual = res.item ?? itemInput;
+    const note = res.one_time
+      ? "Removed completely."
+      : (res.qty === 0 ? "Removed completely." : `Now has: **${fmt(res.qty)}x ${actual}**`);
     return interaction.reply(
-      `✅ Removed **${fmt(qty)}× ${item}** from **${displayNameOf(interaction, target)}** (${char.name}). ${note}`
+      `✅ Removed ${res.one_time ? `**${actual}**` : `**${fmt(qty)}x ${actual}**`} from **${displayNameOf(interaction, target)}** (${char.name}). ${note}`
     );
   },
 };
