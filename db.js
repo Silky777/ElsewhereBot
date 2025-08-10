@@ -46,8 +46,6 @@ export function init() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_inventories_char_item
       ON inventories(character_id, item);
   `);
-  // Migrate older DBs missing inventories.one_time
-  try { db.exec(`ALTER TABLE inventories ADD COLUMN one_time INTEGER NOT NULL DEFAULT 0`); } catch {}
 }
 
 init();
